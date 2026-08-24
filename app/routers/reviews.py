@@ -13,9 +13,11 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.core.database import get_db
 from app.core.deps import get_current_employer_account, require_tier
 from app.core.moderation_filter import scan_for_flagged_content
+from app.core.rate_limit import RateLimitExceeded, enforce_rate_limit
 from app.models.company import Company
 from app.models.employer import EmployerAccount, EmployerResponse
 from app.models.enums import ReviewStatus, VerificationTier
@@ -58,6 +60,26 @@ async def submit_review(
     ).scalar_one_or_none()
     if company is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="company not found")
+
+    # Phase 5: same DB-backed sliding-window pattern as the Phase 1 OTP/
+    # email limits (see app.core.rate_limit), reused as-is against the
+    # `Review` table this endpoint already writes to — an abuse/spam
+    # ceiling, not a realistic-usage one (see settings for the numbers).
+    try:
+        await enforce_rate_limit(
+            db,
+            model=Review,
+            key_column=Review.user_id,
+            key_value=str(user.id),
+            window_minutes=settings.review_rate_limit_window_minutes,
+            max_requests=settings.review_rate_limit_max_requests,
+        )
+    except RateLimitExceeded as exc:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="too many reviews submitted recently, try again later",
+            headers={"Retry-After": str(exc.retry_after_seconds)},
+        ) from exc
 
     existing = (
         await db.execute(

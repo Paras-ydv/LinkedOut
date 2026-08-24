@@ -129,7 +129,21 @@ def generate_numeric_code(length: int) -> str:
 # per password and a slow, tunable-cost function — the opposite tradeoff,
 # on purpose.
 
-_PBKDF2_ITERATIONS = 260_000
+# 600,000 iterations, per current OWASP Password Storage Cheat Sheet
+# guidance for PBKDF2-HMAC-SHA256 (the 260,000 figure used when this was
+# first written in Phase 4 was already stale — OWASP raised the SHA256
+# recommendation to 600k). Bumped here as part of the Phase 5 hardening
+# pass. This only affects *new* hashes: `hash_password` embeds the
+# iteration count it used inside the stored string
+# (`pbkdf2_sha256$<iterations>$<salt>$<hash>`, see below), and
+# `verify_password` reads that count back out rather than assuming the
+# current constant — so this bump needs no migration and doesn't
+# invalidate any `AdminUser` row hashed under the old count. A real
+# deployment with existing admin accounts would want a one-time
+# re-hash-on-next-successful-login step to move old rows up to the new
+# count, which isn't implemented here (no login-triggered rehash) since
+# this project doesn't have production admin accounts yet.
+_PBKDF2_ITERATIONS = 600_000
 _PBKDF2_SALT_BYTES = 16
 
 

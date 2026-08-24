@@ -11,10 +11,12 @@ matter, else 7 days, per the 2026 IT Rules distinction in the brief.
 import uuid
 from datetime import UTC, datetime, timedelta
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.core.database import get_db
+from app.core.rate_limit import RateLimitExceeded, enforce_rate_limit
 from app.models.enums import GrievanceStatus
 from app.models.grievance import GrievanceComplaint
 from app.providers.email import ConsoleEmailProvider, EmailProvider
@@ -42,6 +44,30 @@ def _now() -> datetime:
 async def submit_grievance(
     body: GrievanceComplaintCreate, db: AsyncSession = Depends(get_db)
 ) -> GrievanceComplaintOut:
+    # Phase 5: same DB-backed rate-limit pattern as everywhere else in
+    # this project, reused as-is. This endpoint is public/unauthenticated,
+    # so there's no user id to key on — `complainant_contact` is the only
+    # available signal, and it's already stored in plaintext on this table
+    # (see app.models.grievance), so keying the rate-limit lookup on it
+    # directly adds no new PII exposure. A determined abuser can rotate
+    # the contact string trivially; this is a spam-friction ceiling, not a
+    # security boundary — see TRUST_ARCHITECTURE.md.
+    try:
+        await enforce_rate_limit(
+            db,
+            model=GrievanceComplaint,
+            key_column=GrievanceComplaint.complainant_contact,
+            key_value=body.complainant_contact,
+            window_minutes=settings.grievance_rate_limit_window_minutes,
+            max_requests=settings.grievance_rate_limit_max_requests,
+        )
+    except RateLimitExceeded as exc:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="too many grievance submissions recently, try again later",
+            headers={"Retry-After": str(exc.retry_after_seconds)},
+        ) from exc
+
     now = _now()
     sla_window = _URGENT_SLA if body.is_court_or_government_matter else _STANDARD_SLA
     sla_deadline = now + sla_window

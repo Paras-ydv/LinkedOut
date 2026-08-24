@@ -15,7 +15,7 @@ phase).
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, func
+from sqlalchemy import DateTime, ForeignKey, Index, Integer, String, Text, func
 from sqlalchemy import Enum as SAEnum
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
@@ -27,6 +27,11 @@ from app.models.review import DEPARTMENT_MAX_LEN
 
 class LayoffEvent(Base):
     __tablename__ = "layoff_events"
+    __table_args__ = (
+        # Same rationale as Review.__table_args__'s composite index — see
+        # app.models.review and Phase 5's migration 0006.
+        Index("ix_layoff_events_company_id_status", "company_id", "status"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
 

@@ -18,7 +18,7 @@ import uuid
 from datetime import datetime
 
 from sqlalchemy import Boolean as SABoolean
-from sqlalchemy import DateTime, ForeignKey, String, Text, UniqueConstraint, func
+from sqlalchemy import DateTime, ForeignKey, Index, String, Text, UniqueConstraint, func
 from sqlalchemy import Enum as SAEnum
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
@@ -37,6 +37,11 @@ class Review(Base):
         # One review per user per company: stops a single account from
         # flooding one company's stats with repeat submissions.
         UniqueConstraint("user_id", "company_id", name="uq_reviews_user_company"),
+        # Every Phase 3 aggregation query filters on
+        # (company_id, status == PUBLISHED) — see app.services.stats.
+        # Composite index over the single-column company_id index alone
+        # (see Phase 5's migration 0006 for the full rationale).
+        Index("ix_reviews_company_id_status", "company_id", "status"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)

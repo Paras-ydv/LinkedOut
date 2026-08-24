@@ -6,7 +6,7 @@ full list of variables a deployment must supply.
 
 from functools import lru_cache
 
-from pydantic import Field
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -65,6 +65,40 @@ class Settings(BaseSettings):
     # caching pattern ahead of Phase 5 hardening, it isn't needed for
     # correctness at this data scale.
     stats_cache_ttl_seconds: int = 60
+
+    # --- Rate limiting (Phase 5) ---
+    # Same DB-backed sliding-window pattern as the Phase 1 OTP/email limits
+    # above (see app.core.rate_limit.enforce_rate_limit) — no new infra,
+    # just reused against the tables these endpoints already write to.
+    # `POST /reviews`: keyed on the submitting user's id, counted against
+    # `Review.created_at`. Deliberately generous relative to
+    # `otp_rate_limit_max_requests` — legitimate users may genuinely have
+    # reviews for several employers, this is an abuse/spam ceiling, not a
+    # realistic-usage one.
+    review_rate_limit_max_requests: int = 5
+    review_rate_limit_window_minutes: int = 60
+    # `POST /grievance`: public, unauthenticated, so keyed on
+    # `complainant_contact` (already stored in plaintext per Phase 4 — see
+    # app.models.grievance — so keying on it directly adds no new PII
+    # exposure) against `GrievanceComplaint.created_at`.
+    grievance_rate_limit_max_requests: int = 5
+    grievance_rate_limit_window_minutes: int = 60
+
+    # --- CORS (Phase 5) ---
+    # Permissive by default for local dev/portfolio demo purposes only.
+    # A real deployment MUST override this to the exact origin(s) the
+    # frontend is served from — see the docstring on `cors_allowed_origins`
+    # below and TRUST_ARCHITECTURE.md for the full reasoning. Comma-
+    # separated list in the env var, e.g.
+    # `CORS_ALLOWED_ORIGINS=https://app.example.com,https://admin.example.com`.
+    cors_allowed_origins: list[str] = Field(default_factory=lambda: ["*"])
+
+    @field_validator("cors_allowed_origins", mode="before")
+    @classmethod
+    def _split_cors_origins(cls, v):
+        if isinstance(v, str):
+            return [origin.strip() for origin in v.split(",") if origin.strip()]
+        return v
 
     # --- PII hashing ---
     # HMAC pepper used to deterministically hash phone numbers (and, in later

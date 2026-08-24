@@ -1,4 +1,4 @@
-# Backend — Phase 0-4
+# Backend — Phase 0-5
 
 Structured, verified employee-exit-data platform. Phase 0 (scaffold + DB
 schema for `Company`/`User` + health check + CI), Phase 1 (three-tier auth:
@@ -6,9 +6,18 @@ phone OTP → corporate email → document upload, with JWT + `require_tier`
 route protection), Phase 2 (core review flow: reviews, corroborations,
 layoff events, employer responses), Phase 3 (aggregation engine: structured
 per-company stats and a layoff timeline, computed on read, no composite
-score anywhere), and Phase 4 (moderation & compliance: pre-publication name
+score anywhere), Phase 4 (moderation & compliance: pre-publication name
 filter, admin moderation queue, public takedown log, grievance-officer
-intake) are all built and tested.
+intake), and Phase 5 (hardening: rate limiting, hot-path indexes, a
+load/correctness script for the aggregation engine, a PII-leak schema-walk
+test, CORS, and stronger admin password hashing) are all built and tested.
+
+**See [`TRUST_ARCHITECTURE.md`](./TRUST_ARCHITECTURE.md) for the actual
+portfolio writeup** — the three-tier verification model, the
+hash-and-discard PII pattern end to end, why there's no composite score,
+the public takedown log as a trust mechanism, and the
+moderation-before-publish pipeline, written for a technical reader
+evaluating the system design.
 
 ## Hard constraints this project is built around
 
@@ -143,6 +152,25 @@ ruff format .
 
 Both run in CI (`.github/workflows/ci.yml`), along with `alembic upgrade
 head` against a Postgres service container and the full test suite.
+
+### Load/correctness testing (Phase 5)
+
+`scripts/load_test_stats.py` is a standalone script (not part of the
+pytest suite or CI) that seeds ~20 companies / ~500 reviews with
+realistic, weighted-random distributions directly via the ORM, then hits
+`GET /companies/{id}/stats` for each over real HTTP against a running
+server, timing every call and re-verifying at that scale that every
+percentage distribution still sums to exactly 100.0 and no
+composite-score-shaped key appears anywhere in the response. Point it at
+a disposable database — it seeds rows and does not clean up after
+itself:
+
+```bash
+export DATABASE_URL=postgresql+asyncpg://linkedout:linkedout@localhost:5432/linkedout_loadtest
+alembic upgrade head
+uvicorn app.main:app --port 8000 &         # in another terminal / background
+python scripts/load_test_stats.py
+```
 
 ## API
 
@@ -332,12 +360,47 @@ related_item_type (nullable), related_item_id (nullable), status
   ephemeral-file deletion — a rejected document gets no special
   retention either. Does not touch the user's tier.
 
+### Hardening (Phase 5)
+
+No new endpoints — these are cross-cutting changes to existing ones. See
+`TRUST_ARCHITECTURE.md`'s "Operational floor" section for the full
+reasoning.
+
+- **Rate limiting**, reusing the exact Phase 1 DB-backed sliding-window
+  pattern (`app.core.rate_limit.enforce_rate_limit`), now also covering
+  `POST /reviews` (keyed on `user_id`, 5/hour by default) and
+  `POST /grievance` (keyed on `complainant_contact`, 5/hour by default) —
+  `/auth/otp/request` and `/auth/email/request` were already limited
+  since Phase 1. All four return `429` with a `Retry-After` header.
+- **Composite `(company_id, status)` indexes** on `reviews` and
+  `layoff_events` (migration `0006`) — every query in
+  `app.services.stats` filters on exactly that pair; confirmed via
+  `EXPLAIN ANALYZE` against seeded data that Postgres uses the composite
+  index directly.
+- **CORS**, permissive (`*`) by default for local dev, `allow_credentials
+  =False` always (bearer tokens only, no cookies), configurable via
+  `CORS_ALLOWED_ORIGINS` — a real deployment must set this to the exact
+  frontend origin(s).
+- **Admin password hashing bumped to 600,000 PBKDF2 iterations**
+  (`app.core.security`), matching current OWASP guidance (up from
+  260,000 in the original Phase 4 pass — the iteration count travels
+  with each stored hash, so this needed no migration).
+- **A PII-leak schema-walk test**
+  (`tests/test_security.py::test_no_pii_shaped_fields_in_any_response_schema`)
+  that inspects the live OpenAPI document and fails if any response
+  field name suggests raw phone/email/document content.
+- **A load/correctness script** for the aggregation engine — see "Load/
+  correctness testing" above.
+
 ## What's deliberately NOT built yet
 
 NEWS-sourced layoff event ingestion, self-serve employer signup/domain
 verification, name-based/full-text search or filtering over reviews (the
 `GET /reviews/company/{company_id}` list is paginated but not
-searchable), and rate limiting / abuse protection on the public
-`POST /grievance` and `POST /reviews` endpoints beyond what Phase 1's
-OTP/email flows already have. These are candidates for a later phase, not
-promised by anything built so far.
+searchable), a login-triggered rehash path for `AdminUser` password
+hashes created under an older PBKDF2 iteration count, and a
+non-procedural safeguard against PII leaking into
+`TakedownLogEntry.requester_detail` (currently an operator-discipline
+rule documented in the schema, not something the DB enforces — see
+`TRUST_ARCHITECTURE.md` section 5). These are candidates for a later
+phase, not promised by anything built so far.
