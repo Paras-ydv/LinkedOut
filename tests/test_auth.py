@@ -111,9 +111,7 @@ async def test_raw_phone_never_persisted_in_db(
             assert value != hash_phone(PHONE) or column == "phone_hash"  # sanity: hash, not raw
 
 
-async def test_raw_phone_and_otp_never_logged(
-    client: AsyncClient, capsys: pytest.CaptureFixture
-):
+async def test_raw_phone_and_otp_never_logged(client: AsyncClient, capsys: pytest.CaptureFixture):
     # The only place plaintext phone/OTP legitimately appears is stdout via
     # the ConsoleSMSProvider stub (standing in for a real SMS API call) —
     # never via the `logging` module, which would be captured/aggregated.

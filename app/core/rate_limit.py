@@ -31,8 +31,10 @@ async def enforce_rate_limit(
     of `model` (matched via `key_column`) within the trailing window.
     """
     window_start = datetime.now(UTC) - timedelta(minutes=window_minutes)
-    count_stmt = select(func.count()).select_from(model).where(
-        key_column == key_value, model.created_at >= window_start
+    count_stmt = (
+        select(func.count())
+        .select_from(model)
+        .where(key_column == key_value, model.created_at >= window_start)
     )
     count = (await db.execute(count_stmt)).scalar_one()
     if count >= max_requests:
