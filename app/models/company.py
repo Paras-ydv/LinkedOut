@@ -38,6 +38,13 @@ class Company(Base):
 
     # Size / HQ metadata, for aggregate-stat context (e.g. filtering by size)
     employee_size_bucket: Mapped[EmployeeSizeBucket | None] = mapped_column(
+        # NOTE: intentionally NOT using values_callable here, unlike the
+        # Phase 2 enums below — migration 0001 already created this native
+        # Postgres enum type using the Python enum's *member names*
+        # (micro/small/medium/...), not `.value` ("1-10"/"11-50"/...).
+        # Adding values_callable now would desync the model from the type
+        # that migration actually created. Left as a known Phase 0
+        # inconsistency rather than risking a migration mismatch here.
         SAEnum(EmployeeSizeBucket, name="employee_size_bucket", native_enum=True),
         nullable=True,
     )

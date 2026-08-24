@@ -16,7 +16,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.core.jwt import InvalidTokenError, TokenType, decode_token
+from app.core.jwt import InvalidTokenError, TokenType, decode_employer_token, decode_token
+from app.models.employer import EmployerAccount
 from app.models.enums import VerificationTier
 from app.models.user import User
 
@@ -76,3 +77,46 @@ def require_tier(minimum: VerificationTier):
         return user
 
     return _dependency
+
+
+async def get_current_employer_account(
+    credentials: HTTPAuthorizationCredentials | None = Depends(_bearer_scheme),
+    db: AsyncSession = Depends(get_db),
+) -> EmployerAccount:
+    """Verify an employer session token and load the corresponding EmployerAccount.
+
+    Callers that need to gate on the account being *for a specific
+    company* (e.g. responding to a review) must check
+    `employer_account.company_id` themselves against whatever they're
+    acting on — this dependency only proves "this is a real, currently
+    verified employer account", not "for this company".
+    """
+    if credentials is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="missing bearer token",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    try:
+        payload = decode_employer_token(credentials.credentials)
+    except InvalidTokenError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=f"invalid or expired token: {exc}",
+            headers={"WWW-Authenticate": "Bearer"},
+        ) from exc
+
+    result = await db.execute(select(EmployerAccount).where(EmployerAccount.id == payload.sub))
+    employer_account = result.scalar_one_or_none()
+    if employer_account is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="employer account not found"
+        )
+
+    if not employer_account.verified:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="employer account not verified"
+        )
+
+    return employer_account
