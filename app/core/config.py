@@ -53,6 +53,19 @@ class Settings(BaseSettings):
     email_rate_limit_max_requests: int = 5
     email_rate_limit_window_minutes: int = 60
 
+    # --- Aggregation engine (Phase 3) ---
+    # Below this many PUBLISHED reviews, /companies/{id}/stats returns
+    # {"insufficient_data": true, ...} instead of percentages — a handful
+    # of reviews is both statistically meaningless and a re-identification
+    # risk (looks like it's targeting one whistleblower). Configurable,
+    # per the brief; 5 is the starting value.
+    stats_min_published_reviews: int = 5
+    # In-process TTL cache for the (currently computed-on-read) stats and
+    # layoff-timeline endpoints. Short on purpose — this establishes the
+    # caching pattern ahead of Phase 5 hardening, it isn't needed for
+    # correctness at this data scale.
+    stats_cache_ttl_seconds: int = 60
+
     # --- PII hashing ---
     # HMAC pepper used to deterministically hash phone numbers (and, in later
     # phases, corporate emails / document identifiers) before they ever touch
