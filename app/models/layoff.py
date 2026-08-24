@@ -15,7 +15,7 @@ phase).
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, func
+from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, func
 from sqlalchemy import Enum as SAEnum
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
@@ -71,6 +71,10 @@ class LayoffEvent(Base):
         default=ReviewStatus.pending,
         server_default=ReviewStatus.pending.value,
     )
+
+    # Same Phase 4 name-detection filter as Review.flagged_reason — see
+    # app.models.review for the full note.
+    flagged_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False

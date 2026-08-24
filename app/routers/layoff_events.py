@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.deps import require_tier
+from app.core.moderation_filter import scan_for_flagged_content
 from app.models.company import Company
 from app.models.enums import LayoffSourceType, ReviewStatus, VerificationTier
 from app.models.layoff import LayoffEvent
@@ -48,8 +49,10 @@ async def submit_layoff_event(
     if company is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="company not found")
 
-    # TODO(Phase 4): pre-publication moderation scan (department is free
-    # text, same caveat as Review.department) before this can leave PENDING.
+    # Same Phase 4 pre-publication name filter as Review — see
+    # app.routers.reviews.submit_review for the full note.
+    flagged_reason = scan_for_flagged_content(body.department)
+
     event = LayoffEvent(
         id=uuid.uuid4(),
         company_id=body.company_id,
@@ -60,6 +63,7 @@ async def submit_layoff_event(
         source_url=None,  # source_url only applies to NEWS-sourced entries
         submitted_by_user_id=user.id,
         status=ReviewStatus.pending,
+        flagged_reason=flagged_reason,
         created_at=_now(),
     )
     db.add(event)

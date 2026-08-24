@@ -91,3 +91,41 @@ class LayoffSourceType(str, enum.Enum):
 
     self_reported = "SELF_REPORTED"
     news = "NEWS"
+
+
+class ModeratedItemType(str, enum.Enum):
+    """Which table a moderation/audit/takedown/grievance record refers to.
+
+    Kept as one shared enum (rather than separate per-table enums) so the
+    admin moderation-queue, audit-log, and takedown-log endpoints can all
+    address "a review" or "a layoff event" the same way.
+    """
+
+    review = "REVIEW"
+    layoff_event = "LAYOFF_EVENT"
+    document = "DOCUMENT"
+
+
+class ModerationAction(str, enum.Enum):
+    """What an admin did to a moderation-queue item (Phase 4 audit log)."""
+
+    approve = "APPROVE"
+    reject = "REJECT"
+
+
+class TakedownRequesterType(str, enum.Enum):
+    """Who asked for a takedown (Phase 4 public takedown log)."""
+
+    court_order = "COURT_ORDER"
+    government_direction = "GOVERNMENT_DIRECTION"
+    company_legal_request = "COMPANY_LEGAL_REQUEST"
+    user_report = "USER_REPORT"
+    internal_moderation = "INTERNAL_MODERATION"
+
+
+class GrievanceStatus(str, enum.Enum):
+    """Lifecycle of a grievance-officer complaint (Phase 4, 2026 IT Rules intake)."""
+
+    received = "RECEIVED"
+    acknowledged = "ACKNOWLEDGED"
+    resolved = "RESOLVED"

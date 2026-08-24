@@ -114,3 +114,48 @@ def generate_numeric_code(length: int) -> str:
     """Generate a cryptographically random, zero-padded numeric code."""
     upper_bound = 10**length
     return str(secrets.randbelow(upper_bound)).zfill(length)
+
+
+# --------------------------------------------------------------------------
+# Admin password hashing (Phase 4)
+# --------------------------------------------------------------------------
+#
+# Deliberately stdlib-only (no passlib/bcrypt dependency): `hashlib.pbkdf2_
+# hmac` with a per-password random salt and a large iteration count is a
+# reasonable, dependency-free slow hash for the small number of internal
+# operator accounts this project has. Unlike `hash_phone`/`hash_pii` above
+# (deterministic, keyed hashes needed for exact-match lookup of
+# unrecoverable PII), this *is* password storage, so it uses a random salt
+# per password and a slow, tunable-cost function — the opposite tradeoff,
+# on purpose.
+
+_PBKDF2_ITERATIONS = 260_000
+_PBKDF2_SALT_BYTES = 16
+
+
+def hash_password(password: str) -> str:
+    """Hash a plaintext admin password for storage.
+
+    Returns `pbkdf2_sha256$<iterations>$<hex salt>$<hex hash>` — the
+    iteration count and salt travel with the hash so it can be verified
+    (and the iteration count bumped later) without a schema change.
+    """
+    salt = secrets.token_bytes(_PBKDF2_SALT_BYTES)
+    digest = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, _PBKDF2_ITERATIONS)
+    return f"pbkdf2_sha256${_PBKDF2_ITERATIONS}${salt.hex()}${digest.hex()}"
+
+
+def verify_password(password: str, stored_hash: str) -> bool:
+    """Constant-time verify `password` against a hash from `hash_password`."""
+    try:
+        algorithm, iterations_str, salt_hex, digest_hex = stored_hash.split("$")
+        if algorithm != "pbkdf2_sha256":
+            return False
+        iterations = int(iterations_str)
+        salt = bytes.fromhex(salt_hex)
+        expected = bytes.fromhex(digest_hex)
+    except (ValueError, AttributeError):
+        return False
+
+    candidate = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, iterations)
+    return hmac.compare_digest(candidate, expected)

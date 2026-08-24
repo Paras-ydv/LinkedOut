@@ -98,6 +98,14 @@ class Review(Base):
         server_default=ReviewStatus.pending.value,
     )
 
+    # Set by the Phase 4 pre-publication name-detection filter
+    # (app.core.moderation_filter) when it flags this review for human
+    # review. NULL means the filter passed clean — status is still PENDING
+    # either way; a filter pass never auto-publishes (see
+    # app.routers.reviews.submit_review). A non-NULL value routes this row
+    # to the front of the moderation queue (see app.routers.admin).
+    flagged_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

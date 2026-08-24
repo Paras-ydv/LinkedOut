@@ -16,7 +16,14 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.core.jwt import InvalidTokenError, TokenType, decode_employer_token, decode_token
+from app.core.jwt import (
+    InvalidTokenError,
+    TokenType,
+    decode_admin_token,
+    decode_employer_token,
+    decode_token,
+)
+from app.models.admin import AdminUser
 from app.models.employer import EmployerAccount
 from app.models.enums import VerificationTier
 from app.models.user import User
@@ -120,3 +127,44 @@ async def get_current_employer_account(
         )
 
     return employer_account
+
+
+async def get_current_admin(
+    credentials: HTTPAuthorizationCredentials | None = Depends(_bearer_scheme),
+    db: AsyncSession = Depends(get_db),
+) -> AdminUser:
+    """Verify an admin session token and load the corresponding AdminUser.
+
+    Every `/admin/*` route depends on this — a non-admin bearer token (or
+    no token at all) gets a 401, and a deactivated admin account gets a
+    403, exactly mirroring `get_current_employer_account`.
+    """
+    if credentials is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="missing bearer token",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    try:
+        payload = decode_admin_token(credentials.credentials)
+    except InvalidTokenError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=f"invalid or expired token: {exc}",
+            headers={"WWW-Authenticate": "Bearer"},
+        ) from exc
+
+    result = await db.execute(select(AdminUser).where(AdminUser.id == payload.sub))
+    admin = result.scalar_one_or_none()
+    if admin is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="admin account not found"
+        )
+
+    if not admin.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="admin account deactivated"
+        )
+
+    return admin

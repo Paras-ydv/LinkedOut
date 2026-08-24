@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.deps import get_current_employer_account, require_tier
+from app.core.moderation_filter import scan_for_flagged_content
 from app.models.company import Company
 from app.models.employer import EmployerAccount, EmployerResponse
 from app.models.enums import ReviewStatus, VerificationTier
@@ -69,9 +70,14 @@ async def submit_review(
             detail="you have already submitted a review for this company",
         )
 
-    # TODO(Phase 4): run the pre-publication name filter / moderation scan
-    # here (or in a queue worker triggered by this insert) before allowing
-    # status to ever leave PENDING. Nothing in Phase 2 flips this.
+    # Phase 4 pre-publication name filter: scans the free-text fields
+    # (department + prose) for anything that looks like a person's name.
+    # A hit never blocks or auto-rejects — it only sets `flagged_reason`,
+    # which routes this row to the front of the moderation queue (see
+    # app.routers.admin.get_moderation_queue). `status` is PENDING either
+    # way; nothing here or anywhere in Phase 2 ever auto-publishes.
+    flagged_reason = scan_for_flagged_content(body.department, body.prose)
+
     review = Review(
         id=uuid.uuid4(),
         user_id=user.id,
@@ -83,6 +89,7 @@ async def submit_review(
         is_current_employee=body.is_current_employee,
         prose=body.prose,
         status=ReviewStatus.pending,
+        flagged_reason=flagged_reason,
         created_at=_now(),
     )
     db.add(review)

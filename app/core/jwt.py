@@ -21,6 +21,7 @@ class TokenType(str, Enum):
     access = "access"
     refresh = "refresh"
     employer = "employer"
+    admin = "admin"
 
 
 class TokenPayload(BaseModel):
@@ -42,6 +43,20 @@ class EmployerTokenPayload(BaseModel):
     sub: uuid.UUID
     company_id: uuid.UUID
     verified: bool
+    iat: datetime
+    exp: datetime
+    type: TokenType
+
+
+class AdminTokenPayload(BaseModel):
+    """Payload for an admin session token (see app.routers.admin).
+
+    Distinct shape again, same reasoning as `EmployerTokenPayload`: an
+    admin is an `AdminUser`, not a `User` or `EmployerAccount`. `sub` is
+    the `AdminUser.id`.
+    """
+
+    sub: uuid.UUID
     iat: datetime
     exp: datetime
     type: TokenType
@@ -143,5 +158,39 @@ def decode_employer_token(token: str) -> EmployerTokenPayload:
 
     if payload.type != TokenType.employer:
         raise InvalidTokenError("expected an employer token")
+
+    return payload
+
+
+def create_admin_token(admin_id: uuid.UUID) -> str:
+    now = datetime.now(UTC)
+    payload = {
+        "sub": str(admin_id),
+        "iat": int(now.timestamp()),
+        "exp": int((now + timedelta(minutes=settings.jwt_access_token_expire_minutes)).timestamp()),
+        "type": TokenType.admin.value,
+    }
+    return jwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
+
+
+def decode_admin_token(token: str) -> AdminTokenPayload:
+    """Decode + verify an admin session token. Raises `InvalidTokenError` on any failure."""
+    try:
+        raw = jwt.decode(token, settings.jwt_secret, algorithms=[settings.jwt_algorithm])
+    except JWTError as exc:
+        raise InvalidTokenError(str(exc)) from exc
+
+    try:
+        payload = AdminTokenPayload(
+            sub=raw["sub"],
+            iat=datetime.fromtimestamp(raw["iat"], tz=UTC),
+            exp=datetime.fromtimestamp(raw["exp"], tz=UTC),
+            type=raw["type"],
+        )
+    except (KeyError, ValueError) as exc:
+        raise InvalidTokenError("malformed token payload") from exc
+
+    if payload.type != TokenType.admin:
+        raise InvalidTokenError("expected an admin token")
 
     return payload
