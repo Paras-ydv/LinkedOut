@@ -1,0 +1,25 @@
+[project]
+name = "linkedout"
+version = "0.1.0"
+description = "Structured, verified employee-exit-data platform API (Phase 0 scaffold)."
+requires-python = ">=3.11"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+exclude = [".venv", "alembic/versions"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+# B008: FastAPI's `Depends(...)` / `Query(...)` in argument defaults is the
+# idiomatic pattern the framework is built around, not the antipattern this
+# rule targets (mutable default args) — safe to ignore project-wide.
+ignore = ["B008"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["app"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+testpaths = ["tests"]

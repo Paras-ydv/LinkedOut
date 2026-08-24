@@ -1,0 +1,40 @@
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: linkedout
+      POSTGRES_PASSWORD: linkedout
+      POSTGRES_DB: linkedout
+    ports:
+      - "5432:5432"
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U linkedout -d linkedout"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build: .
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      # Overrides .env's DATABASE_URL host so the API always reaches the
+      # `db` service by its Compose DNS name, regardless of what a
+      # developer's local .env points at for host-side tooling.
+      DATABASE_URL: postgresql+asyncpg://linkedout:linkedout@db:5432/linkedout
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    command: >
+      sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
+    volumes:
+      - .:/srv/app
+
+volumes:
+  db_data:
